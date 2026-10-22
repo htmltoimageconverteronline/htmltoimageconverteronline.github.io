@@ -19,41 +19,85 @@ badge: `<div class="w-72 rounded-xl bg-slate-900 text-white p-5 flex items-cente
 let ready = false, timer;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-function clean(src) {
+const rd = b => new Promise(r => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(b); });
+const inRange = (rng, txt) => !rng || rng.split(',').some(p => {
+  const [a, b] = p.trim().replace(/U\+/i, '').split('-');
+  const lo = parseInt(a.replace(/\?/g, '0'), 16), hi = parseInt((b || a).replace(/\?/g, 'F'), 16);
+  return [...txt].some(ch => { const c = ch.codePointAt(0); return c >= lo && c <= hi; });
+});
+// Builds one CSS string with every web font the page uses, embedded as data URLs
+async function fontCSS(d) {
+  const txt = d.body.textContent, srcs = [];
+  d.querySelectorAll('link[rel=stylesheet]').forEach(l => srcs.push({ u: l.href }));
+  d.querySelectorAll('style').forEach(s => {
+    srcs.push({ t: s.textContent, u: location.href });
+    for (const m of s.textContent.matchAll(/@import\s+(?:url\()?["']?([^"')\s;]+)/g)) srcs.push({ u: m[1] });
+  });
+  const parts = await Promise.all(srcs.map(async s => {
+    let t = s.t;
+    try { if (t == null) t = await (await fetch(s.u)).text(); } catch (e) { return ''; }
+    const blocks = t.match(/@font-face\s*{[^}]*}/g) || [];
+    return (await Promise.all(blocks.map(async b => {
+      if (!inRange((b.match(/unicode-range:\s*([^;}]+)/) || [])[1], txt)) return '';
+      for (const m of [...b.matchAll(/url\(["']?([^"')]+)["']?\)/g)]) {
+        if (m[1].startsWith('data:')) continue;
+        try { const x = await rd(await (await fetch(new URL(m[1], s.u).href)).blob()); b = b.replace(m[1], () => x); } catch (e) {}
+      }
+      return b;
+    }))).join('\n');
+  }));
+  return parts.join('\n');
+}
+let shrink = false, auto = 0;
+function build(src) {
   const d = new DOMParser().parseFromString(src, 'text/html');
   d.querySelectorAll('script,iframe,object,embed').forEach(e => e.remove());
   d.querySelectorAll('*').forEach(e => [...e.attributes].forEach(a => {
     if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) e.removeAttribute(a.name);
   }));
-  return d.head.innerHTML + d.body.innerHTML;
+  shrink = !/<html|<body/i.test(src) && !W.value;
+  const s = d.createElement('style');
+  s.textContent = (/<html|<body/i.test(src) ? '' : 'body{margin:0;' + (shrink ? 'width:fit-content' : '') + '}') + C.value;
+  d.head.append(s);
+  const t = d.createElement('script'); t.src = 'https://cdn.tailwindcss.com/3.4.17';
+  const l = d.createElement('script'); l.src = 'vendor/html-to-image.js';
+  d.head.prepend(t, l);
+  return '<!doctype html>' + d.documentElement.outerHTML;
 }
-function render() {
-  ready = false;
-  const w = +W.value, h = +Hh.value;
-  const size = (w ? `width:${w}px;` : 'width:fit-content;') + (h ? `height:${h}px;overflow:hidden;` : '');
-  F.srcdoc = `<!doctype html><meta charset="utf-8"><script src="https://cdn.tailwindcss.com/3.4.17"><\/script><style>body{margin:0}${C.value}</style><div id="cap" style="${size}">${clean(H.value)}</div>`;
+function fit() {
+  const box = $('box'), vw = +W.value || auto || 1280;
+  const k = Math.min(1, (box.parentElement.clientWidth - 44) / vw);
+  F.style.width = vw + 'px'; F.style.transform = 'scale(' + k + ')';
+  box.style.width = vw * k + 'px'; box.style.height = F.offsetHeight * k + 'px';
 }
-F.onload = () => setTimeout(() => {
-  const c = F.contentDocument.getElementById('cap');
-  F.style.height = (c.scrollHeight + 4) + 'px';
-  ready = true;
-}, 400);
-
-function run(el, fmt, o) {
-  const h = window.htmlToImage;
+function render() { ready = false; auto = 0; F.style.height = '1px'; F.srcdoc = build(H.value); fit(); }
+F.onload = async () => {
+  const d = F.contentDocument;
+  try { await d.fonts.ready; } catch (e) {}
+  await wait(450);
+  if (shrink) { auto = Math.ceil(d.body.scrollWidth) + 1; fit(); }
+  F.style.height = '1px';
+  F.style.height = (+Hh.value || Math.ceil(d.documentElement.scrollHeight)) + 'px';
+  fit(); ready = true;
+};
+function run(h, el, fmt, o) {
   if (fmt === 'png') return h.toPng(el, o);
-  if (fmt === 'jpg') return h.toJpeg(el, { ...o, quality: .95 });
+  if (fmt === 'jpg') return h.toJpeg(el, { ...o, quality: 1 });
   if (fmt === 'svg') return h.toSvg(el, o);
-  return h.toCanvas(el, o).then(c => c.toDataURL('image/webp', .92));
+  return h.toCanvas(el, o).then(c => c.toDataURL('image/webp', 1));
 }
 async function capture(fmt) {
   M.textContent = 'Rendering…';
   while (!ready) await wait(80);
-  const el = F.contentDocument.getElementById('cap');
-  const o = { pixelRatio: +S.value, cacheBust: true };
-  if (!(T.checked && fmt !== 'jpg')) o.backgroundColor = B.value;
-  try { return await run(el, fmt, o); }
-  catch (e) { return await run(el, fmt, { ...o, skipFonts: true }); }
+  const win = F.contentWindow, d = F.contentDocument, el = d.body;
+  const hasBg = x => { const s = win.getComputedStyle(x); return s.backgroundImage !== 'none' || !/^(transparent|rgba\([^)]*,\s*0\))$/.test(s.backgroundColor); };
+  const o = { pixelRatio: +S.value, cacheBust: true, style: { margin: '0' }, fontEmbedCSS: await fontCSS(d) };
+  if (+Hh.value) o.height = +Hh.value;
+  if (!hasBg(el)) {
+    if (hasBg(d.documentElement)) o.backgroundColor = win.getComputedStyle(d.documentElement).backgroundColor;
+    else if (!(T.checked && fmt !== 'jpg')) o.backgroundColor = B.value;
+  }
+  return run(win.htmlToImage, el, fmt, o);
 }
 
 document.querySelectorAll('[data-f]').forEach(b => b.onclick = async () => {
@@ -78,5 +122,6 @@ $('file').onchange = e => {
 };
 S.oninput = () => $('sv').textContent = S.value + 'x';
 [H, C, W, Hh].forEach(x => x.oninput = () => { clearTimeout(timer); timer = setTimeout(render, 400); });
+window.addEventListener('resize', fit);
 H.value = TPL.quote; render();
 })();
