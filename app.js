@@ -80,24 +80,37 @@ F.onload = async () => {
   F.style.height = (+Hh.value || Math.ceil(d.documentElement.scrollHeight)) + 'px';
   fit(); ready = true;
 };
-function run(h, el, fmt, o) {
-  if (fmt === 'png') return h.toPng(el, o);
-  if (fmt === 'jpg') return h.toJpeg(el, { ...o, quality: 1 });
-  if (fmt === 'svg') return h.toSvg(el, o);
-  return h.toCanvas(el, o).then(c => c.toDataURL('image/webp', 1));
-}
 async function capture(fmt) {
   M.textContent = 'Rendering…';
   while (!ready) await wait(80);
-  const win = F.contentWindow, d = F.contentDocument, el = d.body;
-  const hasBg = x => { const s = win.getComputedStyle(x); return s.backgroundImage !== 'none' || !/^(transparent|rgba\([^)]*,\s*0\))$/.test(s.backgroundColor); };
+  const win = F.contentWindow, d = F.contentDocument, h = win.htmlToImage, body = d.body;
+  const cs = x => win.getComputedStyle(x);
+  const hasBg = x => cs(x).backgroundImage !== 'none' || !/^(transparent|rgba\([^)]*,\s*0\))$/.test(cs(x).backgroundColor);
+  const crop = $('cm').value === 'c';
   const o = { pixelRatio: +S.value, cacheBust: true, style: { margin: '0' }, fontEmbedCSS: await fontCSS(d) };
+  if (crop) o.style.background = 'none';
   if (+Hh.value) o.height = +Hh.value;
-  if (!hasBg(el)) {
-    if (hasBg(d.documentElement)) o.backgroundColor = win.getComputedStyle(d.documentElement).backgroundColor;
-    else if (!(T.checked && fmt !== 'jpg')) o.backgroundColor = B.value;
+  const kids = [...body.children].filter(e => !/^(SCRIPT|STYLE|LINK|META|TITLE|NOSCRIPT|TEMPLATE)$/.test(e.tagName) && cs(e).display !== 'none');
+  const rects = kids.map(e => e.getBoundingClientRect()).filter(q => q.width && q.height);
+  if (fmt === 'svg') {
+    const el = crop && kids.length === 1 ? kids[0] : body;
+    if (!T.checked && !hasBg(el)) o.backgroundColor = B.value;
+    return h.toSvg(el, o);
   }
-  return run(win.htmlToImage, el, fmt, o);
+  const cv = await h.toCanvas(body, o), r = o.pixelRatio, b = body.getBoundingClientRect();
+  let sx = 0, sy = 0, sw = cv.width, sh = cv.height;
+  if (crop && rects.length) {
+    sx = Math.max(0, Math.floor((Math.min(...rects.map(q => q.left)) - b.left) * r));
+    sy = Math.max(0, Math.floor((Math.min(...rects.map(q => q.top)) - b.top) * r));
+    sw = Math.min(cv.width, Math.ceil((Math.max(...rects.map(q => q.right)) - b.left) * r)) - sx;
+    sh = Math.min(cv.height, Math.ceil((Math.max(...rects.map(q => q.bottom)) - b.top) * r)) - sy;
+  }
+  const out = document.createElement('canvas'); out.width = sw; out.height = sh;
+  const x = out.getContext('2d');
+  const page = !crop && !hasBg(body) && hasBg(d.documentElement) ? cs(d.documentElement).backgroundColor : B.value;
+  if (!(T.checked && fmt !== 'jpg')) { x.fillStyle = page; x.fillRect(0, 0, sw, sh); }
+  x.drawImage(cv, sx, sy, sw, sh, 0, 0, sw, sh);
+  return out.toDataURL(fmt === 'jpg' ? 'image/jpeg' : fmt === 'webp' ? 'image/webp' : 'image/png', 1);
 }
 
 document.querySelectorAll('[data-f]').forEach(b => b.onclick = async () => {
