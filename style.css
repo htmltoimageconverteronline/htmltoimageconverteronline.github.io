@@ -2,7 +2,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#0b1226;--gr:#16213f;--card:#111a35;--ink:#e8eeff;--mut:#9aa6cf;--hl:#d9b800}}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;color:var(--ink);background:var(--bg) linear-gradient(var(--gr) 1px,transparent 1px) 0 0/28px 28px,linear-gradient(90deg,var(--gr) 1px,transparent 1px) 0 0/28px 28px;font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{margin:0;color:var(--ink);background-color:var(--bg);background-image:linear-gradient(var(--gr) 1px,transparent 1px),linear-gradient(90deg,var(--gr) 1px,transparent 1px);background-size:28px 28px;font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:inherit}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;max-width:1120px;margin:auto;flex-wrap:wrap}
 .logo{font:800 1.1rem Georgia,serif;text-decoration:none;background:linear-gradient(transparent 62%,var(--hl) 62%);word-break:break-all}
