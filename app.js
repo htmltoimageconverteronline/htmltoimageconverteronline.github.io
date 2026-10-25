@@ -1,21 +1,11 @@
 (() => {
 const $ = id => document.getElementById(id);
 const H = $('html'), C = $('css'), F = $('pv'), S = $('scale'), W = $('w'), Hh = $('h'), B = $('bg'), T = $('tr'), M = $('msg');
-const TPL = {
-quote: `<div class="w-[560px] p-10 bg-gradient-to-br from-indigo-600 to-fuchsia-500 text-white">
+const SAMPLE = `<div class="w-[560px] p-10 bg-gradient-to-br from-indigo-600 to-fuchsia-500 text-white rounded-3xl">
   <p class="text-3xl font-bold leading-snug">Ship small. Learn fast. Repeat.</p>
   <p class="mt-6 text-lg opacity-80">@yourname</p>
-</div>`,
-price: `<div class="w-80 bg-white border-2 border-slate-900 p-6 text-slate-900">
-  <h3 class="text-xl font-bold">Starter Plan</h3>
-  <p class="mt-2 text-5xl font-extrabold">₹499<span class="text-base font-medium text-slate-500">/month</span></p>
-  <ul class="mt-4 space-y-1 text-sm"><li>✔ 10 projects</li><li>✔ Email support</li><li>✔ Free updates</li></ul>
-</div>`,
-badge: `<div class="w-72 rounded-xl bg-slate-900 text-white p-5 flex items-center gap-4">
-  <div class="h-14 w-14 rounded-full bg-amber-400 grid place-items-center text-2xl font-bold text-slate-900">R</div>
-  <div><p class="font-bold text-lg">Your Name</p><p class="text-sm text-slate-300">Web Developer</p></div>
-</div>`
-};
+</div>`;
+let lastDim = '';
 let ready = false, timer;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
@@ -81,7 +71,7 @@ F.onload = async () => {
   fit(); ready = true;
 };
 async function capture(fmt) {
-  M.textContent = 'Rendering…';
+  M.textContent = 'Rendering…'; lastDim = '';
   while (!ready) await wait(80);
   const win = F.contentWindow, d = F.contentDocument, h = win.htmlToImage, body = d.body;
   const cs = x => win.getComputedStyle(x);
@@ -105,36 +95,58 @@ async function capture(fmt) {
     sw = Math.min(cv.width, Math.ceil((Math.max(...rects.map(q => q.right)) - b.left) * r)) - sx;
     sh = Math.min(cv.height, Math.ceil((Math.max(...rects.map(q => q.bottom)) - b.top) * r)) - sy;
   }
+  lastDim = sw + ' × ' + sh + ' px';
   const out = document.createElement('canvas'); out.width = sw; out.height = sh;
   const x = out.getContext('2d');
   const page = !crop && !hasBg(body) && hasBg(d.documentElement) ? cs(d.documentElement).backgroundColor : B.value;
-  if (!(T.checked && fmt !== 'jpg')) { x.fillStyle = page; x.fillRect(0, 0, sw, sh); }
+  if (!(T.checked && fmt !== 'jpg')) {
+    x.fillStyle = page; x.beginPath();
+    const rd = ['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft'].map(c => {
+      const v = cs(kids[0])['border' + c + 'Radius'] || '0';
+      return (v.includes('%') ? parseFloat(v) / 100 * rects[0].width : parseFloat(v) || 0) * r;
+    });
+    if (crop && kids.length === 1 && fmt !== 'jpg' && x.roundRect) x.roundRect(0, 0, sw, sh, rd); else x.rect(0, 0, sw, sh);
+    x.fill();
+  }
   x.drawImage(cv, sx, sy, sw, sh, 0, 0, sw, sh);
   return out.toDataURL(fmt === 'jpg' ? 'image/jpeg' : fmt === 'webp' ? 'image/webp' : 'image/png', 1);
 }
 
+const setBusy = v => document.querySelectorAll('[data-f],#copy').forEach(b => b.disabled = v);
+const empty = () => !H.value.trim() && (M.textContent = 'Paste some HTML first.', true);
 document.querySelectorAll('[data-f]').forEach(b => b.onclick = async () => {
+  if (empty()) return;
+  setBusy(true);
   try {
     const url = await capture(b.dataset.f);
     const a = document.createElement('a');
-    a.href = url; a.download = 'markupshot.' + b.dataset.f; a.click();
-    M.textContent = 'Downloaded ' + b.dataset.f.toUpperCase();
-  } catch (e) { M.textContent = 'Export failed. Check that your HTML is valid and any images allow cross-site use.'; }
+    a.href = url; a.download = 'html-to-image.' + b.dataset.f; a.click();
+    M.textContent = 'Downloaded ' + b.dataset.f.toUpperCase() + (lastDim ? ' · ' + lastDim : '');
+  } catch (e) { M.textContent = 'Export failed. Check your HTML. Images from other websites may be blocked.'; }
+  setBusy(false);
 });
 $('copy').onclick = async () => {
+  if (empty()) return;
+  setBusy(true);
   try {
     const blob = await (await fetch(await capture('png'))).blob();
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-    M.textContent = 'Image copied';
+    M.textContent = 'Image copied' + (lastDim ? ' · ' + lastDim : '');
   } catch (e) { M.textContent = 'Copy is not supported in this browser. Use Download PNG.'; }
+  setBusy(false);
 };
-$('tpl').onchange = e => { if (TPL[e.target.value]) { H.value = TPL[e.target.value]; C.value = ''; render(); } };
+$('paste').onclick = async () => {
+  try { H.value = await navigator.clipboard.readText(); render(); }
+  catch (e) { M.textContent = 'Clipboard blocked. Click the box and press Ctrl+V instead.'; }
+};
+$('clear').onclick = () => { H.value = ''; C.value = ''; render(); H.focus(); };
+H.ondragover = e => e.preventDefault();
+H.ondrop = e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) f.text().then(t => { H.value = t; render(); }); };
 $('file').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
   f.text().then(t => { (/\.css$/i.test(f.name) ? C : H).value = t; render(); });
 };
-S.oninput = () => $('sv').textContent = S.value + 'x';
 [H, C, W, Hh].forEach(x => x.oninput = () => { clearTimeout(timer); timer = setTimeout(render, 400); });
 window.addEventListener('resize', fit);
-H.value = TPL.quote; render();
+H.value = SAMPLE; render();
 })();
