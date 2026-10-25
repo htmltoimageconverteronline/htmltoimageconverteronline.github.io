@@ -1,5 +1,5 @@
 (() => {
-const $ = id => document.getElementById(id);
+const $ = id => document.getElementById(id) || { value: '', style: {} };
 const H = $('html'), C = $('css'), F = $('pv'), S = $('scale'), W = $('w'), Hh = $('h'), B = $('bg'), T = $('tr'), M = $('msg');
 const SAMPLE = `<div class="w-[560px] p-10 bg-gradient-to-br from-indigo-600 to-fuchsia-500 text-white rounded-3xl">
   <p class="text-3xl font-bold leading-snug">Ship small. Learn fast. Repeat.</p>
@@ -60,15 +60,24 @@ function fit() {
   F.style.width = vw + 'px'; F.style.transform = 'scale(' + k + ')';
   box.style.width = vw * k + 'px'; box.style.height = F.offsetHeight * k + 'px';
 }
-function render() { ready = false; auto = 0; F.style.height = '1px'; F.srcdoc = build(H.value); fit(); }
+let fb;
+function render() {
+  ready = false; auto = 0; F.style.height = '1px'; F.srcdoc = build(H.value); fit();
+  M.textContent = 'Loading preview…'; clearTimeout(fb);
+  fb = setTimeout(() => { if (!ready) F.onload(); }, 8000);
+}
 F.onload = async () => {
-  const d = F.contentDocument;
-  try { await d.fonts.ready; } catch (e) {}
-  await wait(450);
-  if (shrink) { auto = Math.ceil(d.body.scrollWidth) + 1; fit(); }
-  F.style.height = '1px';
-  F.style.height = (+Hh.value || Math.ceil(d.documentElement.scrollHeight)) + 'px';
-  fit(); ready = true;
+  try {
+    const d = F.contentDocument;
+    try { await d.fonts.ready; } catch (e) {}
+    await wait(450);
+    if (shrink) { auto = Math.ceil(d.body.scrollWidth) + 1; fit(); }
+    F.style.height = '1px';
+    F.style.height = (+Hh.value || Math.ceil(d.documentElement.scrollHeight)) + 'px';
+    fit();
+  } catch (e) {}
+  ready = true;
+  if (M.textContent === 'Loading preview…') M.textContent = '';
 };
 async function capture(fmt) {
   M.textContent = 'Rendering…'; lastDim = '';
